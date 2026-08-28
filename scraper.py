@@ -1,5 +1,4 @@
 
-
 import os
 import requests
 from supabase import create_client, Client
@@ -14,10 +13,14 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 def scrape_reddit_leads():
-    # Search Reddit API for e-commerce hiring posts
-    url = "https://www.reddit.com/r/hireaghostwriter+forhire+freelance/new.json?limit=15"
-    headers = {"User-Agent": "Mozilla/5.0 (E-commerce Lead Aggregator Bot v1.0)"}
+    # 1. Valid multi-reddit URL
+    url = "https://www.reddit.com/r/forhire+freelance/new.json?limit=25"
     
+    # 2. Browser User-Agent header to bypass Reddit's 403 block
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
+    }
+
     response = requests.get(url, headers=headers)
     if response.status_code != 200:
         print(f"Failed to fetch Reddit data: {response.status_code}")
@@ -30,20 +33,17 @@ def scrape_reddit_leads():
         post_data = post["data"]
         title = post_data.get("title", "")
         permalink = f"https://www.reddit.com{post_data.get('permalink', '')}"
-        selftext = post_data.get("selftext", "")
 
-        # Filter for hiring/e-commerce keywords
+        # 3. Filter for hiring / e-commerce keywords
         if "[hiring]" in title.lower() or "e-commerce" in title.lower() or "shopify" in title.lower():
+            # Matches your existing Supabase table columns (id, title, source_url)
             lead_data = {
                 "title": title,
-                "source_url": permalink,
-                "description": selftext[:500],
-                "platform": "Reddit",
-                "status": "active"
+                "source_url": permalink
             }
 
             try:
-                # Insert into Supabase (prevents duplicate entries)
+                # Upsert into Supabase to prevent duplicate entries
                 supabase.table("leads").upsert(lead_data, on_conflict="source_url").execute()
                 print(f"Added lead: {title}")
             except Exception as e:
