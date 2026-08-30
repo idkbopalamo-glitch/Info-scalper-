@@ -1,5 +1,3 @@
 
 curl_cffi
 supabase
-beautifulsoup4
-playwright
