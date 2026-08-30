@@ -1,53 +1,48 @@
 
+
 import os
-import requests
+from curl_cffi import requests
 from supabase import create_client, Client
 
-# Fetch environment variables from GitHub Secrets
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-
-if not SUPABASE_URL or not SUPABASE_KEY:
-    raise ValueError("Missing Supabase URL or Service Role Key.")
-
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+# Initialize Supabase using GitHub Secrets / Environment Variables
+supabase_url = os.getenv("SUPABASE_URL")
+supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+supabase: Client = create_client(supabase_url, supabase_key)
 
 def scrape_reddit_leads():
-    # 1. Valid multi-reddit URL
-    url = "https://www.reddit.com/r/forhire+freelance/new.json?limit=25"
+    # Combine subreddits using + syntax
+    url = "https://old.reddit.com/r/shopify+webflow+freelance_forhire/new.json?limit=25"
     
-    # 2. Browser User-Agent header to bypass Reddit's 403 block
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
     }
 
-    response = requests.get(url, headers=headers)
+    # Fetch using Chrome TLS impersonation to bypass 403 blocks
+    response = requests.get(url, headers=headers, impersonate="chrome120")
+
     if response.status_code != 200:
-        print(f"Failed to fetch Reddit data: {response.status_code}")
+        print(f"Failed to fetch posts. Status code: {response.status_code}")
         return
 
-    data = response.json()
-    posts = data.get("data", {}).get("children", [])
+    posts = response.json()["data"]["children"]
+    
+    for item in posts:
+        post = item["data"]
+        lead_data = {
+            "post_id": post["id"],
+            "title": post["title"],
+            "url": f"https://reddit.com{post['permalink']}",
+            "author": post["author"],
+            "subreddit": post["subreddit"],
+            "created_utc": post["created_utc"],
+            "selftext": post["selftext"][:500]  # First 500 chars of body
+        }
 
-    for post in posts:
-        post_data = post["data"]
-        title = post_data.get("title", "")
-        permalink = f"https://www.reddit.com{post_data.get('permalink', '')}"
-
-        # 3. Filter for hiring / e-commerce keywords
-        if "[hiring]" in title.lower() or "e-commerce" in title.lower() or "shopify" in title.lower():
-            # Matches your existing Supabase table columns (id, title, source_url)
-            lead_data = {
-                "title": title,
-                "source_url": permalink
-            }
-
-            try:
-                # Upsert into Supabase to prevent duplicate entries
-                supabase.table("leads").upsert(lead_data, on_conflict="source_url").execute()
-                print(f"Added lead: {title}")
-            except Exception as e:
-                print(f"Error inserting lead: {e}")
+        # Upsert into Supabase to prevent duplicate key errors
+        supabase.table("leads").upsert(lead_data, on_conflict="post_id").execute()
+        print(f"Saved lead: {lead_data['title']}")
 
 if __name__ == "__main__":
     scrape_reddit_leads()
